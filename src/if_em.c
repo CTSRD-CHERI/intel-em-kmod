@@ -379,8 +379,12 @@ static driver_t em_driver = {
 	"em", em_methods, sizeof(struct adapter),
 };
 
+#if __FreeBSD_version >= 1400058
+DRIVER_MODULE(em, pci, em_driver, 0, 0);
+#else
 devclass_t em_devclass;
 DRIVER_MODULE(em, pci, em_driver, em_devclass, 0, 0);
+#endif
 MODULE_DEPEND(em, pci, 1, 1, 1);
 MODULE_DEPEND(em, ether, 1, 1, 1);
 
@@ -2275,7 +2279,11 @@ em_disable_promisc(struct adapter *adapter)
 	if (if_getflags(ifp) & IFF_ALLMULTI)
 		mcnt = MAX_NUM_MULTICAST_ADDRESSES;
 	else
+#if __FreeBSD_version > 1300053
+		mcnt = if_llmaddr_count(ifp);
+#else
 		mcnt = if_multiaddr_count(ifp, MAX_NUM_MULTICAST_ADDRESSES);
+#endif
 	/* Don't disable if in MAX groups */
 	if (mcnt < MAX_NUM_MULTICAST_ADDRESSES)
 		reg_rctl &=  (~E1000_RCTL_MPE);
@@ -2283,6 +2291,20 @@ em_disable_promisc(struct adapter *adapter)
 	E1000_WRITE_REG(&adapter->hw, E1000_RCTL, reg_rctl);
 }
 
+#if __FreeBSD_version > 1300053
+static u_int
+em_copy_maddr(void *arg, struct sockaddr_dl *sdl, u_int cnt)
+{
+	u8 *mta = arg;
+
+	if (cnt == MAX_NUM_MULTICAST_ADDRESSES)
+		return (1);
+
+	bcopy(LLADDR(sdl), &mta[cnt * ETHER_ADDR_LEN], ETHER_ADDR_LEN);
+
+	return (1);
+}
+#endif
 
 /*********************************************************************
  *  Multicast Update
@@ -2314,7 +2336,11 @@ em_set_multi(struct adapter *adapter)
 		msec_delay(5);
 	}
 
+#if __FreeBSD_version > 1300053
+	mcnt = if_foreach_llmaddr(ifp, em_copy_maddr, mta);
+#else
 	if_multiaddr_array(ifp, mta, &mcnt, MAX_NUM_MULTICAST_ADDRESSES);
+#endif
 
 	if (mcnt >= MAX_NUM_MULTICAST_ADDRESSES) {
 		reg_rctl = E1000_READ_REG(&adapter->hw, E1000_RCTL);
